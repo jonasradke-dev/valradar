@@ -8,3 +8,8 @@ if (lockfile == null)
 }
 
 Console.WriteLine($"{lockfile.Port}:{lockfile.Password}");
+
+string region, shard;
+(region, shard) = RiotService.GetRegionAndShardFromShooterGame();
+
+Console.WriteLine($"{region}:{shard}");
