@@ -138,4 +138,20 @@ public class ValorantApiService
         }
         return 0;
     }
+    
+    public async Task<JsonElement?> GetPreGameMatchData(string puuid)
+    {
+        var player = await GetAsync(_glzBase, $"/pregame/v1/players/{puuid}");
+        if (player is not { } p)
+        {
+            return null;
+        }
+        var matchId = p.GetProperty("MatchID").GetString();
+        if (string.IsNullOrEmpty(matchId))
+        {
+            return null;
+        }
+        return await GetAsync(_glzBase, $"/pregame/v1/matches/{matchId}");
+    }
+    
 }

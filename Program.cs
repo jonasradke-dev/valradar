@@ -72,6 +72,56 @@ await AnsiConsole.Live(new Text("Loading..."))
 
                 case RiotService.GamePhase.PreGame:
                     ctx.UpdateTarget(new Markup("[yellow]Agent Select...[/]"));
+                    var preGameData = await valoAPI.GetPreGameMatchData(authState.ppuid);
+                    if (preGameData is { } preGame)
+                    {
+                        var allyPlayers = preGame.GetProperty("AllyTeam").GetProperty("Players");
+                        var mapId = preGame.GetProperty("MapID").GetString() ?? "";
+                        
+                        var puuids = new List<string>();
+                        foreach (var player in allyPlayers.EnumerateArray())
+                            puuids.Add(player.GetProperty("Subject").GetString() ?? "");
+                        
+                        var names = await valoAPI.ResolveNames(puuids);
+                        var mmrTasks = puuids.Select(id => valoAPI.GetPlayerMMR(id)).ToArray();
+                        var mmrResults = await Task.WhenAll(mmrTasks);
+                        var mmrByPuuid = puuids.Zip(mmrResults).ToDictionary(x => x.First, x => x.Second);
+
+                        var table = new Table()
+                            .Border(TableBorder.Rounded)
+                            .Title($"[bold yellow]Agent Select[/]")
+                            .AddColumn("[cyan]Player[/]")
+                            .AddColumn("[cyan]Agent[/]")
+                            .AddColumn("[cyan]Rank[/]")
+                            .AddColumn("[cyan]Level[/]")
+                            .AddColumn("[cyan]Status[/]");
+                        
+                        foreach (var player in allyPlayers.EnumerateArray())
+                        {
+                            var puuid = player.GetProperty("Subject").GetString() ?? "";
+                            var tier = mmrByPuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
+                                ? ValorantApiService.ExtractCurrentTier(m) : 0;
+                            var level = player.GetProperty("PlayerIdentity")
+                                .GetProperty("AccountLevel").GetInt32();
+                            var agentId = player.GetProperty("CharacterID").GetString() ?? "";
+                            var agentName = AgentUtil.GetAgentName(agentId);
+                            var selectionState = player.GetProperty("CharacterSelectionState").GetString();
+
+                            var name = names.TryGetValue(puuid, out var n) ? n : puuid[..8];
+                            var isSelf = puuid == authState.ppuid;
+                            var nameTag = isSelf ? $"[bold green]{name}[/]" : $"[white]{name}[/]";
+
+                            var statusTag = selectionState switch
+                            {
+                                "locked"   => "[green]Locked[/]",
+                                "selected" => "[yellow]Picking[/]",
+                                _          => "[grey]...[/]"
+                            };
+
+                            table.AddRow(nameTag, agentName, RankUtil.GetRankString(tier), $"{level}", statusTag);
+                        }
+                        ctx.UpdateTarget(Align.Center(table));
+                    } 
                     break;
 
                 case RiotService.GamePhase.InGame:
