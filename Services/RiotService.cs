@@ -1,10 +1,18 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Microsoft.VisualBasic;
 using ValRadar.Models;
 
 namespace ValRadar.Services;
 
 public class RiotService
 {
+    private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+    });
+    
     public static RiotLockfileData? GetLockfileData()
     {
         string localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -68,4 +76,97 @@ public class RiotService
         Console.WriteLine("Warning: Couldn't parse region from log defaulting to EU shard and region");
         return ("eu", "eu");
     }
+
+    public static async Task<JsonElement?> LocalAPIGet(RiotLockfileData riotLockfileData, string path)
+    {
+        string url = $"https://127.0.0.1:{int.Parse(riotLockfileData.Port)}{path}";
+        string authInfo = $"riot:{riotLockfileData.Password}";
+        string authInfoBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(authInfo));
+        
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Authorization", $"Basic {authInfoBase64}");
+        try
+        {
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            string jsonString = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<JsonElement>(jsonString);
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            return null;
+        }
+        
+    }
+
+    public static async Task<AuthState?> GetAuthState(RiotLockfileData riotLockfileData)
+    {
+        var authTokenResponse = await LocalAPIGet(riotLockfileData, "/entitlements/v1/token");
+        var (region, shard) = GetRegionAndShardFromShooterGame();
+
+        if (authTokenResponse is {} data)
+        {
+            return new AuthState
+            {
+                ppuid = data.GetProperty("subject").GetString(),
+                AuthToken = data.GetProperty("accessToken").GetString() ?? "",
+                EntitlementToken = data.GetProperty("token").GetString() ?? "",
+                Region = region,
+                Shard = shard,
+                LockfileData = riotLockfileData
+            };
+        }
+        return null;
+    }
+    
+    public static async Task<JsonElement?> GetPlayerPresence(RiotLockfileData riotLockfileData)
+    {
+        return await LocalAPIGet(riotLockfileData, "/chat/v4/presences");
+    }
+    
+    public enum GamePhase
+    {
+        Menu,
+        PreGame,
+        InGame,
+        Unknown
+    }
+    
+    public static async Task<GamePhase> GetCurrentGamePhase(RiotLockfileData lockfileData, string puuid)
+    {
+        var presenceResponse = await LocalAPIGet(lockfileData, "/chat/v4/presences");
+        if (presenceResponse is not { } data)
+            return GamePhase.Unknown;
+
+        foreach (var presence in data.GetProperty("presences").EnumerateArray())
+        {
+            if (presence.GetProperty("puuid").GetString() != puuid)
+                continue;
+
+            string? privateB64 = presence.GetProperty("private").GetString();
+            if (string.IsNullOrEmpty(privateB64))
+                return GamePhase.Menu;
+
+            var p = JsonSerializer.Deserialize<JsonElement>(
+                Encoding.UTF8.GetString(Convert.FromBase64String(privateB64))
+            );
+
+            var sessionState = p.GetProperty("matchPresenceData")
+                .GetProperty("sessionLoopState")
+                .GetString();
+
+            return sessionState switch
+            {
+                "MENUS"   => GamePhase.Menu,
+                "PREGAME" => GamePhase.PreGame,
+                "INGAME"  => GamePhase.InGame,
+                _         => GamePhase.Unknown
+            };
+        }
+
+        return GamePhase.Unknown;
+    }
+    
 }
