@@ -40,7 +40,7 @@ public class RiotWebSocketService : IDisposable
         await _webSocket.SendAsync(bytes, WebSocketMessageType.Text, true, _cancellationTokenSource.Token);
     }
 
-    private async Task ListenAsync()
+    public async Task ListenAsync()
     {
         var buffer = new byte[16384];
         var messageBuffer = new StringBuilder();
