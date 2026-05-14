@@ -2,11 +2,11 @@
 
 public class AuthState
 {
-    public string ppuid { get; set; }
-    public string AuthToken { get; set; }
-    public string EntitlementToken { get; set; }
-    public string Region { get; set; }
-    public string Shard { get; set; }
+    public required string ppuid { get; set; }
+    public required string AuthToken { get; set; }
+    public required string EntitlementToken { get; set; }
+    public required string Region { get; set; }
+    public required string Shard { get; set; }
     //public string ClientVersion { get; set; }
-    public RiotLockfileData LockfileData { get; set; }
+    public required RiotLockfileData LockfileData { get; set; }
 }

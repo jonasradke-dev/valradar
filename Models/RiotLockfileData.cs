@@ -2,6 +2,6 @@
 
 public class RiotLockfileData
 {
-    public string Password;
-    public string Port;
+    public required string Password;
+    public required string Port;
 }

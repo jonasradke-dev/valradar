@@ -11,4 +11,8 @@
       <PackageReference Include="Spectre.Console" Version="0.55.2" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Folder Include="out\" />
+    </ItemGroup>
+
 </Project>

@@ -122,20 +122,58 @@ public class ValorantApiService
     {
         return await GetAsync(_pdBase, $"/mmr/v1/players/{puuid}");
     }
+    
+    public async Task<Dictionary<string, JsonElement?>> GetBatchMMR(List<string> puuids)
+    {
+        var result = new Dictionary<string, JsonElement?>();
+        foreach (var puuid in puuids)
+        {
+            result[puuid] = await GetPlayerMMR(puuid);
+            await Task.Delay(200); // 
+        }
+        return result;
+    }
     public static int ExtractCurrentTier(JsonElement mmrData)
     {
-        if (mmrData.TryGetProperty("QueueSkills", out var qs) &&
-            qs.TryGetProperty("competitive", out var comp) &&
-            comp.TryGetProperty("SeasonalInfoBySeasonID", out var seasons))
+        try
         {
-            JsonElement latest = default;
-            foreach (var season in seasons.EnumerateObject())
-                latest = season.Value;
+            // Option 1: LatestCompetitiveUpdate hat den aktuellen Rank
+            if (mmrData.TryGetProperty("LatestCompetitiveUpdate", out var latest) &&
+                latest.ValueKind == JsonValueKind.Object &&
+                latest.TryGetProperty("TierAfterUpdate", out var tierAfter))
+            {
+                return tierAfter.GetInt32();
+            }
 
-            if (latest.ValueKind != JsonValueKind.Undefined &&
-                latest.TryGetProperty("CompetitiveTier", out var t))
-                return t.GetInt32();
+            // Option 2: Fallback auf QueueSkills
+            if (mmrData.TryGetProperty("QueueSkills", out var qs) &&
+                qs.ValueKind == JsonValueKind.Object &&
+                qs.TryGetProperty("competitive", out var comp) &&
+                comp.ValueKind == JsonValueKind.Object &&
+                comp.TryGetProperty("TotalWinsNeededForRank", out _) &&
+                comp.TryGetProperty("CurrentSeasonGamesNeededForRating", out _))
+            {
+                // SeasonalInfoBySeasonID — nimm die mit der höchsten Anzahl Games
+                if (comp.TryGetProperty("SeasonalInfoBySeasonID", out var seasons) &&
+                    seasons.ValueKind == JsonValueKind.Object)
+                {
+                    int maxGames = 0;
+                    int tier = 0;
+                    foreach (var season in seasons.EnumerateObject())
+                    {
+                        if (season.Value.ValueKind != JsonValueKind.Object) continue;
+                        var games = season.Value.TryGetProperty("NumberOfGames", out var g) ? g.GetInt32() : 0;
+                        if (games >= maxGames)
+                        {
+                            maxGames = games;
+                            tier = season.Value.TryGetProperty("CompetitiveTier", out var t) ? t.GetInt32() : 0;
+                        }
+                    }
+                    return tier;
+                }
+            }
         }
+        catch { }
         return 0;
     }
     
@@ -152,6 +190,17 @@ public class ValorantApiService
             return null;
         }
         return await GetAsync(_glzBase, $"/pregame/v1/matches/{matchId}");
+    }
+
+    public async Task<JsonElement?> GetCurrentGameData(string puuid)
+    {
+        var player = await GetAsync(_glzBase, $"/core-game/v1/players/{puuid}");
+        if(player is not { } p)
+        {
+            return null;
+        }
+        var matchId = p.GetProperty("MatchID").GetString();
+        return await GetAsync(_glzBase, $"/core-game/v1/matches/{matchId}");
     }
     
 }
