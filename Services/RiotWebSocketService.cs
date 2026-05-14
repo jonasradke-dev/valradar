@@ -25,7 +25,7 @@ public class RiotWebSocketService : IDisposable
         var authBase64 = Convert.ToBase64String(authBytes);
         _webSocket.Options.SetRequestHeader("Authorization", $"Basic {authBase64}");
         
-        var uri = new Uri($"wss://172.0.0.1:{_lockfileData.Port}");
+        var uri = new Uri($"wss://127.0.0.1:{_lockfileData.Port}");
         await _webSocket.ConnectAsync(uri, _cancellationTokenSource.Token);
 
         var subscribeMessage = "[5, \"OnJsonApiEvent_chat_v4_presences\"]";
