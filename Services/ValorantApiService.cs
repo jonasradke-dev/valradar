@@ -72,7 +72,7 @@ public class ValorantApiService
 
     public async Task<JsonElement?> GetPartyData()
     {
-        var playerParty = await GetAsync(_glzBase, $"/parties/v1/players/{_authState.ppuid}");
+        var playerParty = await GetAsync(_glzBase, $"/parties/v1/players/{_authState.Puuid}");
         if (playerParty is not { } pp)
         {
             return null;

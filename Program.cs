@@ -5,13 +5,15 @@ using ValRadar.Services;
 using ValRadar.Util;
 
 var lockfile = RiotService.GetLockfileData();
+if (lockfile is null) return;
 
 var authState = await RiotService.GetAuthState(lockfile);
+if (authState is null) return;
 
 var valoAPI = new ValorantApiService(authState);
 await valoAPI.InitializeAsync();
-AnsiConsole.Clear();
 
+AnsiConsole.Clear();
 var width = 35;
 var pad = (Console.WindowWidth - width) / 2;
 var sp = new string(' ', Math.Max(pad, 0));
@@ -19,14 +21,42 @@ var sp = new string(' ', Math.Max(pad, 0));
 AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
 AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
 AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
-RiotService.GamePhase? lastPhase = null;
-JsonElement? cachedMatchData = null;
+
+// WebSocket
+var wsService = new RiotWebSocketService(lockfile, authState.Puuid);
+await wsService.ConnectAsync();
+
+var initialPresence = await RiotService.GetCurrentGamePhase(lockfile, authState.Puuid);
+string currentPhase = initialPresence switch
+{
+    RiotService.GamePhase.Menu => "MENUS",
+    RiotService.GamePhase.PreGame => "PREGAME",
+    RiotService.GamePhase.InGame => "INGAME",
+    _ => "MENUS"
+};
+
+string? lastPhase = null;
+var phaseChanged = new SemaphoreSlim(0);
+
+wsService.OnGamePhaseChanged += phase =>
+{
+    if (phase != currentPhase)
+    {
+        currentPhase = phase;
+        phaseChanged.Release();
+    }
+};
+
+_ = Task.Run(() => wsService.ListenAsync());
+
+
 string? cachedMatchId = null;
 IRenderable? cachedMatchDisplay = null;
 string? cachedPartyId = null;
 IRenderable? cachedPartyDisplay = null;
+var partyMemberPuuids = new List<string>();
 
-// Hilfsmethode für Tabellen-Erstellung — vermeidet Code-Duplizierung
+
 Table CreatePlayerTable(string title, string titleColor)
 {
     return new Table()
@@ -38,27 +68,34 @@ Table CreatePlayerTable(string title, string titleColor)
         .AddColumn(new TableColumn("[cyan]Level[/]").Width(8));
 }
 
-// Hilfsmethode für Spieler-Name mit Hidden-Check
-string GetPlayerName(Dictionary<string, string> names, string puuid, JsonElement playerIdentity, string selfPuuid)
+string GetPlayerName(Dictionary<string, string> names, string puuid, JsonElement playerIdentity, string selfpuuid, List<string> partyMembers)
 {
     bool incognito = playerIdentity.TryGetProperty("Incognito", out var inc) && inc.GetBoolean();
-    bool hideLevel = playerIdentity.TryGetProperty("HideAccountLevel", out var hl) && hl.GetBoolean();
     
-    if (incognito)
+    bool isSelf = puuid == selfpuuid;
+    bool isPartyMember = partyMembers.Contains(puuid);
+    
+    if (incognito && !isSelf && !isPartyMember)
         return "[dim italic]Hidden[/]";
     
     var name = names.TryGetValue(puuid, out var n) ? n : puuid[..8];
-    return puuid == selfPuuid ? $"[bold green]{name}[/]" : $"[white]{name}[/]";
+    return isSelf ? $"[bold green]{name}[/]" : $"[white]{name}[/]";
 }
 
-int GetPlayerLevel(JsonElement playerIdentity)
+
+int GetPlayerLevel(JsonElement playerIdentity, string puuid, string selfpuuid, List<string> partyMembers)
 {
     bool hideLevel = playerIdentity.TryGetProperty("HideAccountLevel", out var hl) && hl.GetBoolean();
-    if (hideLevel) return -1;
+    bool isSelf = puuid == selfpuuid;
+    bool isPartyMember = partyMembers.Contains(puuid);
+    
+    if (hideLevel && !isSelf && !isPartyMember)
+        return -1;
+        
     return playerIdentity.GetProperty("AccountLevel").GetInt32();
 }
 
-var gamePhase = await RiotService.GetCurrentGamePhase(lockfile, authState.ppuid);
+
 
 
 await AnsiConsole.Live(new Text("Loading..."))
@@ -67,34 +104,34 @@ await AnsiConsole.Live(new Text("Loading..."))
     {
         while (true)
         {
-            var gamePhase = await RiotService.GetCurrentGamePhase(lockfile, authState.ppuid); 
-            
-            if (gamePhase != lastPhase)
+            if (currentPhase != lastPhase)
             {
-                lastPhase = gamePhase;
+                lastPhase = currentPhase;
                 cachedMatchId = null;
                 cachedMatchDisplay = null;
                 cachedPartyId = null;
                 cachedPartyDisplay = null;
-    
-                // Konsole neu zeichnen
+
                 AnsiConsole.Clear();
                 AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
                 AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
                 AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
             }
-            
 
-            switch (gamePhase)
+            var phase = currentPhase switch
+            {
+                "MENUS" => RiotService.GamePhase.Menu,
+                "PREGAME" => RiotService.GamePhase.PreGame,
+                "INGAME" => RiotService.GamePhase.InGame,
+                _ => RiotService.GamePhase.Unknown
+            };
+
+            switch (phase)
             {
                 case RiotService.GamePhase.Menu:
-                    cachedMatchId = null;
-                    cachedMatchDisplay = null;
-
                     var partyData = await valoAPI.GetPartyData();
                     if (partyData is { } party)
                     {
-                        // Party-ID aus der Response holen um Änderungen zu erkennen
                         var currentPartyMembers = new List<string>();
                         foreach (var member in party.GetProperty("Members").EnumerateArray())
                             currentPartyMembers.Add(member.GetProperty("Subject").GetString() ?? "");
@@ -103,9 +140,8 @@ await AnsiConsole.Live(new Text("Loading..."))
                         if (partyKey != cachedPartyId)
                         {
                             cachedPartyId = partyKey;
-
                             var names = await valoAPI.ResolveNames(currentPartyMembers);
-                            var mmrByPuuid = await valoAPI.GetBatchMMR(currentPartyMembers);
+                            var mmrBypuuid = await valoAPI.GetBatchMMR(currentPartyMembers);
 
                             var table = new Table()
                                 .Border(TableBorder.Rounded)
@@ -118,7 +154,7 @@ await AnsiConsole.Live(new Text("Loading..."))
                             foreach (var member in party.GetProperty("Members").EnumerateArray())
                             {
                                 var puuid = member.GetProperty("Subject").GetString() ?? "";
-                                var tier = mmrByPuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
+                                var tier = mmrBypuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
                                     ? ValorantApiService.ExtractCurrentTier(m) : 0;
                                 var identity = member.GetProperty("PlayerIdentity");
                                 var level = identity.GetProperty("AccountLevel").GetInt32();
@@ -131,73 +167,64 @@ await AnsiConsole.Live(new Text("Loading..."))
 
                                 table.AddRow(nameTag, RankUtil.GetRankString(tier), $"{level}", readyTag);
                             }
-
                             cachedPartyDisplay = Align.Center(table);
                         }
-
                         ctx.UpdateTarget(cachedPartyDisplay!);
                     }
                     break;
 
                 case RiotService.GamePhase.PreGame:
-                    var preGameData = await valoAPI.GetPreGameMatchData(authState.ppuid);
+                    var preGameData = await valoAPI.GetPreGameMatchData(authState.Puuid);
                     if (preGameData is { } preGame)
                     {
                         var allyPlayers = preGame.GetProperty("AllyTeam").GetProperty("Players");
-                        var mapId = preGame.GetProperty("MapID").GetString() ?? "";
-                        
                         var puuids = new List<string>();
                         foreach (var player in allyPlayers.EnumerateArray())
                             puuids.Add(player.GetProperty("Subject").GetString() ?? "");
-                        
+
                         var names = await valoAPI.ResolveNames(puuids);
-                        var mmrTasks = puuids.Select(id => valoAPI.GetPlayerMMR(id)).ToArray();
-                        var mmrResults = await Task.WhenAll(mmrTasks);
-                        var mmrByPuuid = puuids.Zip(mmrResults).ToDictionary(x => x.First, x => x.Second);
+                        var mmrBypuuid = await valoAPI.GetBatchMMR(puuids);
 
                         var table = new Table()
                             .Border(TableBorder.Rounded)
-                            .Title($"[bold yellow]Agent Select[/]")
-                            .AddColumn("[cyan]Player[/]")
-                            .AddColumn("[cyan]Agent[/]")
-                            .AddColumn("[cyan]Rank[/]")
-                            .AddColumn("[cyan]Level[/]")
-                            .AddColumn("[cyan]Status[/]");
-                        
+                            .Title("[bold yellow]Agent Select[/]")
+                            .AddColumn(new TableColumn("[cyan]Player[/]").Width(30))
+                            .AddColumn(new TableColumn("[cyan]Agent[/]").Width(12))
+                            .AddColumn(new TableColumn("[cyan]Rank[/]").Width(16))
+                            .AddColumn(new TableColumn("[cyan]Level[/]").Width(8))
+                            .AddColumn(new TableColumn("[cyan]Status[/]").Width(10));
+
                         foreach (var player in allyPlayers.EnumerateArray())
                         {
                             var puuid = player.GetProperty("Subject").GetString() ?? "";
-                            var tier = mmrByPuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
+                            var tier = mmrBypuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
                                 ? ValorantApiService.ExtractCurrentTier(m) : 0;
-                            var level = player.GetProperty("PlayerIdentity")
-                                .GetProperty("AccountLevel").GetInt32();
+                            var level = player.GetProperty("PlayerIdentity").GetProperty("AccountLevel").GetInt32();
                             var agentId = player.GetProperty("CharacterID").GetString() ?? "";
-                            var agentName = AgentUtil.GetAgentName(agentId);
                             var selectionState = player.GetProperty("CharacterSelectionState").GetString();
 
                             var name = names.TryGetValue(puuid, out var n) ? n : puuid[..8];
-                            var isSelf = puuid == authState.ppuid;
+                            var isSelf = puuid == authState.Puuid;
                             var nameTag = isSelf ? $"[bold green]{name}[/]" : $"[white]{name}[/]";
-
                             var statusTag = selectionState switch
                             {
-                                "locked"   => "[green]Locked[/]",
+                                "locked" => "[green]Locked[/]",
                                 "selected" => "[yellow]Picking[/]",
-                                _          => "[grey]...[/]"
+                                _ => "[grey]...[/]"
                             };
 
-                            table.AddRow(nameTag, agentName, RankUtil.GetRankString(tier), $"{level}", statusTag);
+                            table.AddRow(nameTag, AgentUtil.GetAgentName(agentId), RankUtil.GetRankString(tier), $"{level}", statusTag);
                         }
                         ctx.UpdateTarget(Align.Center(table));
                     }
                     else
                     {
-                        
+                        ctx.UpdateTarget(new Markup("[yellow]Loading agent select...[/]"));
                     }
                     break;
 
                 case RiotService.GamePhase.InGame:
-                    var currentGameData = await valoAPI.GetCurrentGameData(authState.ppuid);
+                    var currentGameData = await valoAPI.GetCurrentGameData(authState.Puuid);
                     if (currentGameData is { } currentGame)
                     {
                         var matchID = currentGame.GetProperty("MatchID").GetString();
@@ -215,22 +242,21 @@ await AnsiConsole.Live(new Text("Loading..."))
                                     redTeam.Add(player);
                             }
 
-                            var allPuuids = blueTeam.Concat(redTeam)
+                            var allpuuids = blueTeam.Concat(redTeam)
                                 .Select(p => p.GetProperty("Subject").GetString() ?? "").ToList();
-                            var names = await valoAPI.ResolveNames(allPuuids);
-                            var mmrByPuuid = await valoAPI.GetBatchMMR(allPuuids);
+                            var names = await valoAPI.ResolveNames(allpuuids);
+                            var mmrBypuuid = await valoAPI.GetBatchMMR(allpuuids);
 
                             var blueTable = CreatePlayerTable("Blue Team", "blue");
                             foreach (var player in blueTeam)
                             {
                                 var puuid = player.GetProperty("Subject").GetString() ?? "";
                                 var identity = player.GetProperty("PlayerIdentity");
-                                var tier = mmrByPuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
+                                var tier = mmrBypuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
                                     ? ValorantApiService.ExtractCurrentTier(m) : 0;
-                                var level = GetPlayerLevel(identity);
-
+                                var level = GetPlayerLevel(identity, puuid, authState.Puuid, partyMemberPuuids);
                                 blueTable.AddRow(
-                                    GetPlayerName(names, puuid, identity, authState.ppuid),
+                                    GetPlayerName(names, puuid, identity, authState.Puuid, partyMemberPuuids),
                                     AgentUtil.GetAgentName(player.GetProperty("CharacterID").GetString() ?? ""),
                                     RankUtil.GetRankString(tier),
                                     level >= 0 ? $"{level}" : "[dim]Hidden[/]"
@@ -242,18 +268,16 @@ await AnsiConsole.Live(new Text("Loading..."))
                             {
                                 var puuid = player.GetProperty("Subject").GetString() ?? "";
                                 var identity = player.GetProperty("PlayerIdentity");
-                                var tier = mmrByPuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
+                                var tier = mmrBypuuid.TryGetValue(puuid, out var mmr) && mmr is { } m
                                     ? ValorantApiService.ExtractCurrentTier(m) : 0;
-                                var level = GetPlayerLevel(identity);
-
+                                var level = GetPlayerLevel(identity, puuid, authState.Puuid, partyMemberPuuids);
                                 redTable.AddRow(
-                                    GetPlayerName(names, puuid, identity, authState.ppuid),
+                                    GetPlayerName(names, puuid, identity, authState.Puuid, partyMemberPuuids),
                                     AgentUtil.GetAgentName(player.GetProperty("CharacterID").GetString() ?? ""),
                                     RankUtil.GetRankString(tier),
                                     level >= 0 ? $"{level}" : "[dim]Hidden[/]"
                                 );
                             }
-
                             cachedMatchDisplay = Align.Center(new Rows(blueTable, redTable));
                         }
                         ctx.UpdateTarget(cachedMatchDisplay!);
@@ -265,6 +289,6 @@ await AnsiConsole.Live(new Text("Loading..."))
                     break;
             }
 
-            await Task.Delay(5000);
+            await phaseChanged.WaitAsync(TimeSpan.FromSeconds(10));
         }
     });

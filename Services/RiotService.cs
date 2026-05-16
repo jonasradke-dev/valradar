@@ -110,7 +110,7 @@ public class RiotService
         {
             return new AuthState
             {
-                ppuid = data.GetProperty("subject").GetString(),
+                Puuid = data.GetProperty("subject").GetString(),
                 AuthToken = data.GetProperty("accessToken").GetString() ?? "",
                 EntitlementToken = data.GetProperty("token").GetString() ?? "",
                 Region = region,
