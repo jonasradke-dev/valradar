@@ -2,7 +2,7 @@
 
 public class AuthState
 {
-    public required string ppuid { get; set; }
+    public required string Puuid { get; set; }
     public required string AuthToken { get; set; }
     public required string EntitlementToken { get; set; }
     public required string Region { get; set; }

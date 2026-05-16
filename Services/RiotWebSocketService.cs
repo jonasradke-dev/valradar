@@ -8,13 +8,15 @@ namespace ValRadar.Services;
 public class RiotWebSocketService : IDisposable
 {
     private ClientWebSocket? _webSocket;
+    private readonly string _selfPuuid;
     private readonly RiotLockfileData _lockfileData;
     private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
     public event Action<string>? OnGamePhaseChanged;
     public event Action<JsonElement>? OnPresenceUpdated;
-    public RiotWebSocketService(RiotLockfileData lockfileData)
+    public RiotWebSocketService(RiotLockfileData lockfileData, string selfPuuid)
     {
         _lockfileData = lockfileData;
+        _selfPuuid = selfPuuid;
     }
 
     public async Task ConnectAsync()
@@ -77,38 +79,39 @@ public class RiotWebSocketService : IDisposable
         try
         {
             var json = JsonSerializer.Deserialize<JsonElement>(message);
-            if(json.ValueKind == JsonValueKind.Array) return;
-            
+            if (json.ValueKind != JsonValueKind.Array) return;
+
             var arr = json.EnumerateArray().ToList();
-            if(arr.Count < 3) return;
-            
+            if (arr.Count < 3) return;
+
             var eventData = arr[2];
-            if(!eventData.TryGetProperty("data", out var data)) return;
-            if(!eventData.TryGetProperty("presences", out var presences)) return;
+            if (!eventData.TryGetProperty("data", out var data)) return;
+            if (!data.TryGetProperty("presences", out var presences)) return;
 
             foreach (var presence in presences.EnumerateArray())
             {
+                // Nur eigene Presence verarbeiten
+                var puuid = presence.TryGetProperty("puuid", out var p) ? p.GetString() : null;
+                if (puuid != _selfPuuid) continue;
+
                 var privateB64 = presence.TryGetProperty("private", out var priv)
                     ? priv.GetString() : null;
-                if(string.IsNullOrEmpty(privateB64)) continue;
-                
+                if (string.IsNullOrEmpty(privateB64)) continue;
+
                 var privateJson = Encoding.UTF8.GetString(Convert.FromBase64String(privateB64));
                 var privateData = JsonSerializer.Deserialize<JsonElement>(privateJson);
-                
-                if(privateData.TryGetProperty("sessionLoopState", out var sessionLoopState) || 
-                   privateData.TryGetProperty("matchPresenceData", out var matchPresenceData) &&
-                   matchPresenceData.TryGetProperty("sessionLoopState", out sessionLoopState))
+
+                if (privateData.TryGetProperty("matchPresenceData", out var mpd) &&
+                    mpd.TryGetProperty("sessionLoopState", out var state))
                 {
-                    var phase = sessionLoopState.GetString() ?? "";
+                    var phase = state.GetString() ?? "";
                     OnGamePhaseChanged?.Invoke(phase);
                 }
+
                 OnPresenceUpdated?.Invoke(privateData);
             }
         }
-        catch
-        {
-            // message wasn't in expected format, ignore
-        }
+        catch { }
     }
 
     public void Dispose()
