@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using ValRadar.Models;
+using ValRadar.Util;
 
 namespace ValRadar.Services;
 
@@ -65,7 +66,7 @@ public class ValorantApiService
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error fetching data from {url}: {exception.Message}");
+            Logger.Error($"Error fetching data from {url}: {exception.Message}");
             return null;
         }
     }
@@ -114,7 +115,7 @@ public class ValorantApiService
             }
         }catch(Exception exception)
         {
-            Console.WriteLine($"Error resolving names: {exception.Message}");
+            Logger.Error($"Error resolving names: {exception.Message}");
         }
         return result;
     }
@@ -129,7 +130,7 @@ public class ValorantApiService
         foreach (var puuid in puuids)
         {
             result[puuid] = await GetPlayerMMR(puuid);
-            await Task.Delay(200); // 
+            await Task.Delay(200); 
         }
         return result;
     }
@@ -137,7 +138,6 @@ public class ValorantApiService
     {
         try
         {
-            // Option 1: LatestCompetitiveUpdate hat den aktuellen Rank
             if (mmrData.TryGetProperty("LatestCompetitiveUpdate", out var latest) &&
                 latest.ValueKind == JsonValueKind.Object &&
                 latest.TryGetProperty("TierAfterUpdate", out var tierAfter))
@@ -145,7 +145,7 @@ public class ValorantApiService
                 return tierAfter.GetInt32();
             }
 
-            // Option 2: Fallback auf QueueSkills
+            
             if (mmrData.TryGetProperty("QueueSkills", out var qs) &&
                 qs.ValueKind == JsonValueKind.Object &&
                 qs.TryGetProperty("competitive", out var comp) &&
@@ -153,7 +153,6 @@ public class ValorantApiService
                 comp.TryGetProperty("TotalWinsNeededForRank", out _) &&
                 comp.TryGetProperty("CurrentSeasonGamesNeededForRating", out _))
             {
-                // SeasonalInfoBySeasonID — nimm die mit der höchsten Anzahl Games
                 if (comp.TryGetProperty("SeasonalInfoBySeasonID", out var seasons) &&
                     seasons.ValueKind == JsonValueKind.Object)
                 {
