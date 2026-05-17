@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.VisualBasic;
 using ValRadar.Models;
+using ValRadar.Util;
 
 namespace ValRadar.Services;
 
@@ -39,7 +40,7 @@ public class RiotService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error reading lockfile: {ex.Message}");
+            Logger.Error($"Error reading lockfile: {ex.Message}");
             return null;
         }
     }
@@ -95,7 +96,7 @@ public class RiotService
         }
         catch(Exception ex)
         {
-            Console.WriteLine(ex.Message);
+            Logger.Error(ex.Message);
             return null;
         }
         

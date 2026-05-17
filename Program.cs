@@ -13,6 +13,10 @@ if (authState is null) return;
 var valoAPI = new ValorantApiService(authState);
 await valoAPI.InitializeAsync();
 
+var DiscordPresence = new DiscordRPCService("1505606528504303677");
+DiscordPresence.Initialize();
+DiscordPresence.UpdatePresence("ValRadar", "Loading...", "valradar_icon_1024");
+
 AnsiConsole.Clear();
 var width = 35;
 var pad = (Console.WindowWidth - width) / 2;
@@ -168,6 +172,7 @@ await AnsiConsole.Live(new Text("Loading..."))
                                 table.AddRow(nameTag, RankUtil.GetRankString(tier), $"{level}", readyTag);
                             }
                             cachedPartyDisplay = Align.Center(table);
+                            DiscordPresence.UpdatePresence("In Party Lobby", $"{currentPartyMembers.Count} player(s)", "valradar_icon_1024");
                         }
                         ctx.UpdateTarget(cachedPartyDisplay!);
                     }
@@ -184,6 +189,9 @@ await AnsiConsole.Live(new Text("Loading..."))
 
                         var names = await valoAPI.ResolveNames(puuids);
                         var mmrBypuuid = await valoAPI.GetBatchMMR(puuids);
+                        
+                        var mapId = preGame.GetProperty("MapID").GetString() ?? "";
+                        var MapName = mapId.Split('/').LastOrDefault() ?? mapId;
 
                         var table = new Table()
                             .Border(TableBorder.Rounded)
@@ -214,12 +222,13 @@ await AnsiConsole.Live(new Text("Loading..."))
                             };
 
                             table.AddRow(nameTag, AgentUtil.GetAgentName(agentId), RankUtil.GetRankString(tier), $"{level}", statusTag);
+                            DiscordPresence.UpdatePresence("In Agent Select", $"Map:{MapName}", "valradar_icon_1024");
                         }
                         ctx.UpdateTarget(Align.Center(table));
                     }
                     else
                     {
-                        ctx.UpdateTarget(new Markup("[yellow]Loading agent select...[/]"));
+                        //ctx.UpdateTarget(new Markup("[yellow]Loading agent select...[/]"));
                     }
                     break;
 
@@ -227,6 +236,9 @@ await AnsiConsole.Live(new Text("Loading..."))
                     var currentGameData = await valoAPI.GetCurrentGameData(authState.Puuid);
                     if (currentGameData is { } currentGame)
                     {
+                        var gameModeId = currentGame.GetProperty("ModeID").GetString();
+                        var GameModeName = gameModeId.Split('/').LastOrDefault() ?? "";
+                        
                         var matchID = currentGame.GetProperty("MatchID").GetString();
                         if (matchID != cachedMatchId)
                         {
@@ -281,9 +293,10 @@ await AnsiConsole.Live(new Text("Loading..."))
                             cachedMatchDisplay = Align.Center(new Rows(blueTable, redTable));
                         }
                         ctx.UpdateTarget(cachedMatchDisplay!);
+                        DiscordPresence.UpdatePresence("In Game", $"Mode:{GameModeName}", "valradar_icon_1024");
                     }
                     break;
-
+ 
                 default:
                     ctx.UpdateTarget(new Markup("[grey]Waiting for Valorant...[/]"));
                     break;
