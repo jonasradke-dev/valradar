@@ -69,6 +69,7 @@ await AnsiConsole.Live(new Text("Loading..."))
             {
                 lastPhase = currentPhase;
                 display.ResetCache();
+                AnsiConsole.Clear();
                 drawHeader();
             }
 
