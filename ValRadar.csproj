@@ -5,6 +5,7 @@
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <ApplicationIcon>assets\valradar_icon.ico</ApplicationIcon>
     </PropertyGroup>
 
     <ItemGroup>
