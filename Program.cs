@@ -16,16 +16,22 @@ await valoAPI.InitializeAsync();
 
 var DiscordPresence = new DiscordRPCService("1505606528504303677");
 DiscordPresence.Initialize();
-DiscordPresence.UpdatePresence("ValRadar", "Loading...", "valradar_icon_1024");
+
+var display = new GameDisplayService(valoAPI, DiscordPresence, authState.Puuid);
 
 AnsiConsole.Clear();
 var width = 35;
 var pad = (Console.WindowWidth - width) / 2;
 var sp = new string(' ', Math.Max(pad, 0));
 
-AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
-AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
-AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
+void drawHeader() 
+{
+    AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
+    AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
+    AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
+}
+
+drawHeader();
 
 // WebSocket
 var wsService = new RiotWebSocketService(lockfile, authState.Puuid);
