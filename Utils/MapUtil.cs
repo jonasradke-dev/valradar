@@ -21,7 +21,9 @@ public class MapUtil
         ["/Game/Maps/Port/Port"] = "Icebox",
         ["/Game/Maps/Triad/Triad"] = "Haven",
         ["/Game/Maps/Rook/Rook"] = "Corrode",
-        ["/Game/Maps/Poveglia/Range"] = "The Range"
+        ["/Game/Maps/Poveglia/Range"] = "The Range",
+        ["/Game/Maps/PovegliaV2/RangeV2"] = "The Range"
+        
     };
     public static string GetMapName(string mapUrl)
         => Maps.TryGetValue(mapUrl, out var name) ? name : mapUrl;
