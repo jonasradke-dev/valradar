@@ -1,6 +1,4 @@
-﻿using System.Text.Json;
-using Spectre.Console;
-using Spectre.Console.Rendering;
+﻿using Spectre.Console;
 using ValRadar.Services;
 var lockfile = RiotService.GetLockfileData();
 if (lockfile is null) return;
@@ -11,24 +9,24 @@ if (authState is null) return;
 var valoAPI = new ValorantApiService(authState);
 await valoAPI.InitializeAsync();
 
-var DiscordPresence = new DiscordRPCService("1505606528504303677");
-DiscordPresence.Initialize();
+var discordPresence = new DiscordRPCService("1505606528504303677");
+discordPresence.Initialize();
 
-var display = new GameDisplayService(valoAPI, DiscordPresence, authState.Puuid);
+var display = new GameDisplayService(valoAPI, discordPresence, authState.Puuid);
 
 AnsiConsole.Clear();
 var width = 35;
 var pad = (Console.WindowWidth - width) / 2;
 var sp = new string(' ', Math.Max(pad, 0));
 
-void drawHeader() 
+void DrawHeader() 
 {
     AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
     AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
     AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
 }
 
-drawHeader();
+DrawHeader();
 
 // WebSocket
 var wsService = new RiotWebSocketService(lockfile, authState.Puuid);
@@ -70,7 +68,7 @@ await AnsiConsole.Live(new Text("Loading..."))
                 lastPhase = currentPhase;
                 display.ResetCache();
                 AnsiConsole.Clear();
-                drawHeader();
+                DrawHeader();
             }
 
             var phase = currentPhase switch
