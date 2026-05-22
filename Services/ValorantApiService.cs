@@ -1,16 +1,15 @@
 ﻿using System.Text;
 using System.Text.Json;
+using ValRadar.Auth;
 using ValRadar.Models;
 using ValRadar.Util;
 
 namespace ValRadar.Services;
 
-public class ValorantApiService
+public class ValorantApiService : IDisposable
 {
-    private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-    });
+    private static readonly HttpClient _publicApiClient = new();
+    private readonly HttpClient _httpClient;
     
     private const string ClientPlatform =
         "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9";
@@ -25,6 +24,11 @@ public class ValorantApiService
         _authState = authState;
         _glzBase = $"https://glz-{authState.Region}-1.{authState.Shard}.a.pvp.net";
         _pdBase = $"https://pd.{authState.Shard}.a.pvp.net";
+
+        _httpClient = RiotHttpClientFactory.Create(
+            authState,
+            ClientPlatform,
+            () => _clientVersion);
     }
 
     public async Task InitializeAsync()
@@ -36,14 +40,15 @@ public class ValorantApiService
     {
         try
         {
-            var response = await _httpClient.GetAsync("https://valorant-api.com/v1/version");
+            var response = await _publicApiClient.GetAsync("https://valorant-api.com/v1/version");
             var json = JsonSerializer.Deserialize<JsonElement>(
                 await response.Content.ReadAsStringAsync()
             );
             return json.GetProperty("data").GetProperty("riotClientVersion").GetString() ?? "";
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.Error($"Failed to fetch client version from valorant-api.com: {ex.Message}. Falling back to hardcoded version.");
             return "release-12.08-shipping-7-4578383";
         }
     }
@@ -51,22 +56,28 @@ public class ValorantApiService
     private async Task<JsonElement?> GetAsync(string baseUrl, string path)
     {
         string url = $"{baseUrl}{path}";
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("X-Riot-Entitlements-JWT", _authState.EntitlementToken);
-        request.Headers.Add("Authorization", $"Bearer {_authState.AuthToken}");
-        request.Headers.Add("X-Riot-ClientPlatform", ClientPlatform);
-        request.Headers.Add("X-Riot-ClientVersion", _clientVersion);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         try
         {
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            using var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                await LogHttpErrorAsync(request, response);
+                return null;
+            }
+
             return JsonSerializer.Deserialize<JsonElement>(
                 await response.Content.ReadAsStringAsync());
         }
-        catch (Exception exception)
+        catch (HttpRequestException exception)
         {
-            Logger.Error($"Error fetching data from {url}: {exception.Message}");
+            Logger.Error($"Network error | GET {url} | {exception.Message}");
+            return null;
+        }
+        catch (JsonException exception)
+        {
+            Logger.Error($"JSON parse error | GET {url} | {exception.Message}");
             return null;
         }
     }
@@ -90,15 +101,17 @@ public class ValorantApiService
     
     public async Task<Dictionary<string, string>> ResolveNames(List<string> puuids)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Put, $"{_pdBase}/name-service/v2/players");
-        request.Headers.Add("X-Riot-Entitlements-JWT", _authState.EntitlementToken);
-        request.Headers.Add("Authorization", $"Bearer {_authState.AuthToken}");
-        request.Headers.Add("X-Riot-ClientPlatform", ClientPlatform);
-        request.Headers.Add("X-Riot-ClientVersion", _clientVersion);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(puuids),Encoding.UTF8, "application/json");
-
         var result = new Dictionary<string, string>();
+        var url = $"{_pdBase}/name-service/v2/players";
+        
+        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(puuids),
+                Encoding.UTF8,
+                "application/json")
+        };
+        
         try
         {
             var response = await _httpClient.SendAsync(request);
@@ -172,7 +185,11 @@ public class ValorantApiService
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to extract tier from MMR data: {ex.Message}");
+            return 0;
+        }
         return 0;
     }
     
@@ -201,5 +218,40 @@ public class ValorantApiService
         var matchId = p.GetProperty("MatchID").GetString();
         return await GetAsync(_glzBase, $"/core-game/v1/matches/{matchId}");
     }
-    
+
+    private async Task LogHttpErrorAsync(
+        HttpRequestMessage request,
+        HttpResponseMessage response,
+        CancellationToken cancellationToken = default)
+    {
+        string body;
+        
+        try
+        {
+            body = await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            body = $"Failed to read response body: {ex.Message}";
+        }
+        if (!string.IsNullOrEmpty(body) && body.Length > 1000)
+        {
+            body = string.Concat(body.AsSpan(0, 1000), "...(truncated)" );
+        }
+        var method = request.Method;
+        var url = request.RequestUri?.ToString() ?? "<no-uri>";
+        var statusCode = (int)response.StatusCode;
+        var statusName = response.StatusCode.ToString();
+
+        var clientVersion = string.IsNullOrEmpty(_clientVersion) ? "<Empty>" : _clientVersion;
+        
+        Logger.Error($"Riot API Error | {method} {url} -> {statusCode} - ({statusName}) | Clientversion={clientVersion} | Body={body}");
+        
+    }
+
+    public void Dispose()
+    {
+        _httpClient?.Dispose();
+    }
+
 }
