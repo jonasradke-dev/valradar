@@ -2,7 +2,7 @@
 
 namespace ValRadar.Auth;
 
-public class RegionResolver
+public class RegionResolver : IRegionResolver
 {
     private static readonly Regex GlzUrlPattern = new(
         @"https://glz-(.+?)-1\.(.+?)\.a\.pvp\.net",
