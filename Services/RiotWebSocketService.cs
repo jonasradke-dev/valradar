@@ -1,6 +1,7 @@
 ﻿using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using ValRadar.Auth;
 using ValRadar.Models;
 
 namespace ValRadar.Services;
@@ -9,11 +10,11 @@ public class RiotWebSocketService : IDisposable
 {
     private ClientWebSocket? _webSocket;
     private readonly string _selfPuuid;
-    private readonly RiotLockfileData _lockfileData;
+    private readonly LockfileData _lockfileData;
     private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
     public event Action<string>? OnGamePhaseChanged;
     public event Action<JsonElement>? OnPresenceUpdated;
-    public RiotWebSocketService(RiotLockfileData lockfileData, string selfPuuid)
+    public RiotWebSocketService(LockfileData lockfileData, string selfPuuid)
     {
         _lockfileData = lockfileData;
         _selfPuuid = selfPuuid;
