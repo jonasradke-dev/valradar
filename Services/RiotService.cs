@@ -1,8 +1,6 @@
 ﻿using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using Microsoft.VisualBasic;
-using ValRadar.Models;
+using ValRadar.Auth;
 using ValRadar.Util;
 
 namespace ValRadar.Services;
@@ -14,74 +12,11 @@ public class RiotService
         ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
     });
     
-    public static RiotLockfileData? GetLockfileData()
+
+    public static async Task<JsonElement?> LocalAPIGet(LockfileData lockfileData, string path)
     {
-        string localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string lockfilePath = Path.Combine(localAppDataPath, "Riot Games", "Riot Client", "Config", "lockfile");
-
-        if (!File.Exists(lockfilePath))
-        {
-            Console.WriteLine("Could not find lockfile. Is Valorant running?");
-        }
-
-        try
-        {
-            using FileStream fs = new FileStream(lockfilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using StreamReader reader = new StreamReader(fs);
-            string lockfileContent = reader.ReadToEnd();
-            string[] lockfileParts = lockfileContent.Split(':');
-
-            return new RiotLockfileData()
-            {
-                Port = lockfileParts[2],
-                Password = lockfileParts[3],
-
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"Error reading lockfile: {ex.Message}");
-            return null;
-        }
-    }
-
-    public static (string region, string shard) GetRegionAndShardFromShooterGame()
-    {
-        string pattern = @"https://glz-(.+?)-1\.(.+?)\.a\.pvp\.net";
-        Regex regex = new Regex(pattern);
-        string shooterGameLogPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) +
-                                    @"\VALORANT\Saved\Logs\ShooterGame.log";
-
-        if (!File.Exists(shooterGameLogPath))
-        {
-            Console.WriteLine("Could not find ShooterGame.log. Is Valorant running?");
-            Console.WriteLine("Defaulting to EU shard and region");
-            return ("eu", "eu");
-        }
-
-        using FileStream fs = new FileStream(shooterGameLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using (StreamReader reader = new StreamReader(fs))
-        {
-            string? line;
-            while ((line = reader.ReadLine()) != null)
-            {
-                Match match = regex.Match(line);
-                if (match.Success)
-                {
-                    string region = match.Groups[1].Value;
-                    string shard = match.Groups[2].Value;
-                    return (region, shard);
-                }
-            }
-        }
-        Console.WriteLine("Warning: Couldn't parse region from log defaulting to EU shard and region");
-        return ("eu", "eu");
-    }
-
-    public static async Task<JsonElement?> LocalAPIGet(RiotLockfileData riotLockfileData, string path)
-    {
-        string url = $"https://127.0.0.1:{int.Parse(riotLockfileData.Port)}{path}";
-        string authInfo = $"riot:{riotLockfileData.Password}";
+        string url = $"https://127.0.0.1:{lockfileData.Port}{path}";
+        string authInfo = $"riot:{lockfileData.Password}";
         string authInfoBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(authInfo));
         
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -101,30 +36,11 @@ public class RiotService
         }
         
     }
-
-    public static async Task<AuthState?> GetAuthState(RiotLockfileData riotLockfileData)
-    {
-        var authTokenResponse = await LocalAPIGet(riotLockfileData, "/entitlements/v1/token");
-        var (region, shard) = GetRegionAndShardFromShooterGame();
-
-        if (authTokenResponse is {} data)
-        {
-            return new AuthState
-            {
-                Puuid = data.GetProperty("subject").GetString(),
-                AuthToken = data.GetProperty("accessToken").GetString() ?? "",
-                EntitlementToken = data.GetProperty("token").GetString() ?? "",
-                Region = region,
-                Shard = shard,
-                LockfileData = riotLockfileData
-            };
-        }
-        return null;
-    }
     
-    public static async Task<JsonElement?> GetPlayerPresence(RiotLockfileData riotLockfileData)
+    
+    public static async Task<JsonElement?> GetPlayerPresence(LockfileData lockfileData)
     {
-        return await LocalAPIGet(riotLockfileData, "/chat/v4/presences");
+        return await LocalAPIGet(lockfileData, "/chat/v4/presences");
     }
     
     public enum GamePhase
@@ -135,7 +51,7 @@ public class RiotService
         Unknown
     }
     
-    public static async Task<GamePhase> GetCurrentGamePhase(RiotLockfileData lockfileData, string puuid)
+    public static async Task<GamePhase> GetCurrentGamePhase(LockfileData lockfileData, string puuid)
     {
         var presenceResponse = await LocalAPIGet(lockfileData, "/chat/v4/presences");
         if (presenceResponse is not { } data)
