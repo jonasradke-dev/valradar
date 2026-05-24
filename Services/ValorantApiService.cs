@@ -14,19 +14,17 @@ public class ValorantApiService : IDisposable
     private const string ClientPlatform =
         "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9";
 
-    private readonly AuthState _authState;
-    private readonly string _glzBase;
-    private readonly string _pdBase;
+    private readonly IRiotAuthService _authService;
     private string _clientVersion = "";
+    private string GlzBase => $"https://glz-{_authService.Current.Region}-1.{_authService.Current.Shard}.a.pvp.net";
+    private string PdBase => $"https://pd.{_authService.Current.Shard}.a.pvp.net";
 
-    public ValorantApiService(AuthState authState)
+    public ValorantApiService(IRiotAuthService authService)
     {
-        _authState = authState;
-        _glzBase = $"https://glz-{authState.Region}-1.{authState.Shard}.a.pvp.net";
-        _pdBase = $"https://pd.{authState.Shard}.a.pvp.net";
+        _authService = authService;
 
         _httpClient = RiotHttpClientFactory.Create(
-            authState,
+            authService,
             ClientPlatform,
             () => _clientVersion);
     }
@@ -84,7 +82,7 @@ public class ValorantApiService : IDisposable
 
     public async Task<JsonElement?> GetPartyData()
     {
-        var playerParty = await GetAsync(_glzBase, $"/parties/v1/players/{_authState.Puuid}");
+        var playerParty = await GetAsync(GlzBase, $"/parties/v1/players/{_authService.Current.Puuid}");
         if (playerParty is not { } pp)
         {
             return null;
@@ -96,14 +94,16 @@ public class ValorantApiService : IDisposable
             return null;
         }
         
-        return await GetAsync(_glzBase, $"/parties/v1/parties/{partyId}");
+        return await GetAsync(GlzBase, $"/parties/v1/parties/{partyId}");
     }
     
-    public async Task<Dictionary<string, string>> ResolveNames(List<string> puuids)
+    public async Task<Dictionary<string, string>> ResolveNames(
+        List<string> puuids,
+        CancellationToken cancellationToken = default)
     {
         var result = new Dictionary<string, string>();
-        var url = $"{_pdBase}/name-service/v2/players";
-        
+        var url = $"{PdBase}/name-service/v2/players";
+
         using var request = new HttpRequestMessage(HttpMethod.Put, url)
         {
             Content = new StringContent(
@@ -111,13 +111,19 @@ public class ValorantApiService : IDisposable
                 Encoding.UTF8,
                 "application/json")
         };
-        
+
         try
         {
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-            var jsonResponse = JsonSerializer.Deserialize<JsonElement>(
-                await response.Content.ReadAsStringAsync());
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await LogHttpErrorAsync(request, response, cancellationToken);
+                return result;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var jsonResponse = JsonSerializer.Deserialize<JsonElement>(content);
 
             foreach (var player in jsonResponse.EnumerateArray())
             {
@@ -126,15 +132,22 @@ public class ValorantApiService : IDisposable
                 var tag = player.GetProperty("TagLine").GetString();
                 result[id] = $"{name}#{tag}";
             }
-        }catch(Exception exception)
-        {
-            Logger.Error($"Error resolving names: {exception.Message}");
         }
+        catch (HttpRequestException ex)
+        {
+            Logger.Error($"Network error | PUT {url} | {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            Logger.Error($"JSON parse error | PUT {url} | {ex.Message}");
+        }
+
         return result;
     }
+    
     public async Task<JsonElement?> GetPlayerMMR(string puuid)
     {
-        return await GetAsync(_pdBase, $"/mmr/v1/players/{puuid}");
+        return await GetAsync(PdBase, $"/mmr/v1/players/{puuid}");
     }
     
     public async Task<Dictionary<string, JsonElement?>> GetBatchMMR(List<string> puuids)
@@ -188,14 +201,13 @@ public class ValorantApiService : IDisposable
         catch (Exception ex)
         {
             Logger.Error($"Failed to extract tier from MMR data: {ex.Message}");
-            return 0;
         }
         return 0;
     }
     
     public async Task<JsonElement?> GetPreGameMatchData(string puuid)
     {
-        var player = await GetAsync(_glzBase, $"/pregame/v1/players/{puuid}");
+        var player = await GetAsync(GlzBase, $"/pregame/v1/players/{puuid}");
         if (player is not { } p)
         {
             return null;
@@ -205,18 +217,18 @@ public class ValorantApiService : IDisposable
         {
             return null;
         }
-        return await GetAsync(_glzBase, $"/pregame/v1/matches/{matchId}");
+        return await GetAsync(GlzBase, $"/pregame/v1/matches/{matchId}");
     }
 
     public async Task<JsonElement?> GetCurrentGameData(string puuid)
     {
-        var player = await GetAsync(_glzBase, $"/core-game/v1/players/{puuid}");
+        var player = await GetAsync(GlzBase, $"/core-game/v1/players/{puuid}");
         if(player is not { } p)
         {
             return null;
         }
         var matchId = p.GetProperty("MatchID").GetString();
-        return await GetAsync(_glzBase, $"/core-game/v1/matches/{matchId}");
+        return await GetAsync(GlzBase, $"/core-game/v1/matches/{matchId}");
     }
 
     private async Task LogHttpErrorAsync(
@@ -251,7 +263,6 @@ public class ValorantApiService : IDisposable
 
     public void Dispose()
     {
-        _httpClient?.Dispose();
+        _httpClient.Dispose();
     }
-
 }
