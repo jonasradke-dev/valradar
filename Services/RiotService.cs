@@ -12,7 +12,6 @@ public class RiotService
         ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
     });
     
-
     public static async Task<JsonElement?> LocalAPIGet(LockfileData lockfileData, string path)
     {
         string url = $"https://127.0.0.1:{lockfileData.Port}{path}";
@@ -35,12 +34,6 @@ public class RiotService
             return null;
         }
         
-    }
-    
-    
-    public static async Task<JsonElement?> GetPlayerPresence(LockfileData lockfileData)
-    {
-        return await LocalAPIGet(lockfileData, "/chat/v4/presences");
     }
     
     public enum GamePhase
