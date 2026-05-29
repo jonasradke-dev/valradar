@@ -1,56 +1,108 @@
 ﻿using Spectre.Console;
+using ValRadar.Auth;
 using ValRadar.Services;
-using ValRadar.Util;
 
 
-AnsiConsole.MarkupLine("[bold red]╔═══════════════════════════════╗[/]");
-AnsiConsole.MarkupLine("[bold red]║[/]     [bold #ff4654]V A L R A D A R[/]           [bold red]║[/]");
-AnsiConsole.MarkupLine("[bold red]╚═══════════════════════════════╝[/]");
-AnsiConsole.WriteLine();
-var lockfile = RiotService.GetLockfileData();
-
-var authState = await RiotService.GetAuthState(lockfile);
-
-var valoAPI = new ValorantApiService(authState);
-await valoAPI.InitializeAsync();
-
-var partyData = await valoAPI.GetPartyData();
-if (partyData is { } party)
+try
 {
-    var puuids = new List<string>();
-    foreach (var member in party.GetProperty("Members").EnumerateArray())
-        puuids.Add(member.GetProperty("Subject").GetString() ?? "");
-
-    var names = await valoAPI.ResolveNames(puuids);
-
-    var table = new Table()
-        .Border(TableBorder.Rounded)
-        .Title("[bold yellow]Party Lobby[/]")
-        .AddColumn("[cyan]Player[/]")
-        .AddColumn("[cyan]Rank[/]")
-        .AddColumn("[cyan]Level[/]")
-        .AddColumn("[cyan]Ready[/]");
-
-    foreach (var member in party.GetProperty("Members").EnumerateArray())
+    var lockFileReader = new LockfileReader();
+    var regionResolver = new RegionResolver();
+    using var localHttpClient = RiotLocalClientFactory.CreateClient();
+    
+    var authService = await RiotAuthService.CreateAsync(
+        lockFileReader,
+        regionResolver,
+        localHttpClient);
+    
+    using var valoAPI = new ValorantApiService(authService);
+    await valoAPI.InitializeAsync();
+    
+    var discordPresense = new DiscordRPCService("1505606528504303677");
+    discordPresense.Initialize();
+    
+    var display = new GameDisplayService(valoAPI, discordPresense, authService.Current.Puuid);
+    
+    AnsiConsole.Clear();
+    var width = 35;
+    var pad = (Console.WindowWidth - width) / 2;
+    var sp = new string(' ', Math.Max(pad, 0));
+    
+    void DrawHeader() 
     {
-        var puuid = member.GetProperty("Subject").GetString() ?? "";
-        var mmr = await valoAPI.GetPlayerMMR(puuid);
-        var tier = mmr is { } m ? ValorantApiService.ExtractCurrentTier(m) : 0;
-        var identity = member.GetProperty("PlayerIdentity");
-        var level = identity.GetProperty("AccountLevel").GetInt32();
-        var isReady = member.GetProperty("IsReady").GetBoolean();
-        var isOwner = member.TryGetProperty("IsOwner", out var o) && o.GetBoolean();
-
-        var name = names.TryGetValue(puuid, out var n) ? n : puuid[..8];
-        var nameTag = isOwner ? $"[bold gold1]{name} (Owner)[/]" : $"[white]{name}[/]";
-        var readyTag = isReady ? "[green]Yes[/]" : "[red]No[/]";
-
-        table.AddRow(nameTag, RankUtil.GetRankString(tier), $"{level}", readyTag);
+        AnsiConsole.MarkupLine($"{sp}[bold red]╔═══════════════════════════════╗[/]");
+        AnsiConsole.MarkupLine($"{sp}[bold red]║[/]        [bold #ff4654]V A L R A D A R[/]        [bold red]║[/]");
+        AnsiConsole.MarkupLine($"{sp}[bold red]╚═══════════════════════════════╝[/]");
     }
 
-    AnsiConsole.Write(table);
-}
- 
+    DrawHeader();
+    
+    var wsService = new RiotWebSocketService(authService.Current.LockfileData, authService.Current.Puuid);
+    await wsService.ConnectAsync();
 
-Console.WriteLine("Press any key to exit...");
-Console.ReadKey();
+
+    var initialPresence =
+        await RiotService.GetCurrentGamePhase(authService.Current.LockfileData, authService.Current.Puuid);
+    
+    string currentPhase = initialPresence switch
+    {
+        RiotService.GamePhase.Menu => "MENUS",
+        RiotService.GamePhase.PreGame => "PREGAME",
+        RiotService.GamePhase.InGame => "INGAME",
+        _ => "MENUS"
+    };
+    
+    string? lastPhase = null;
+    var phaseChanged = new SemaphoreSlim(0);
+    
+    wsService.OnGamePhaseChanged += phase =>
+    {
+        if (phase != currentPhase)
+        {
+            currentPhase = phase;
+            phaseChanged.Release();
+        }
+    };
+    
+    //TODO: exceptions in ListenAsync are silently swallowed.
+    _ = Task.Run(() => wsService.ListenAsync());
+    
+    await AnsiConsole.Live(new Text("Loading..."))
+        .AutoClear(false)
+        .StartAsync(async ctx =>
+        {
+            while (true)
+            {
+                if (currentPhase != lastPhase)
+                {
+                    lastPhase = currentPhase;
+                    display.ResetCache();
+                    AnsiConsole.Clear();
+                    DrawHeader();
+                }
+
+                var phase = currentPhase switch
+                {
+                    "MENUS" => await display.RenderMenuAsync(),
+                    "PREGAME" => await display.RenderPreGameAsync(),
+                    "INGAME" => await display.RenderInGameAsync(),
+                    _ => new Markup("[grey]Waiting for Valorant...[/]")
+                };
+                ctx.UpdateTarget(phase);
+                await phaseChanged.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        });
+    
+}catch(Exception ex)
+{
+    AnsiConsole.WriteException(ex);
+}
+
+
+
+
+
+
+
+
+
+
