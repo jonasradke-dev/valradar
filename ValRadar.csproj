@@ -18,4 +18,8 @@
       <Folder Include="out\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Content Include=".github\workflows\build.yml" />
+    </ItemGroup>
+
 </Project>
