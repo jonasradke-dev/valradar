@@ -231,6 +231,31 @@ public class ValorantApiService : IDisposable
         return await GetAsync(GlzBase, $"/core-game/v1/matches/{matchId}");
     }
 
+    public async Task<List<JsonElement>> GetPlayerMatchHistory(string puuid, int startIndex = 0, int endIndex = 5)
+    {
+        var response = await GetAsync(PdBase, $"/mmr/v1/players/{puuid}/competitiveupdates?startIndex={startIndex}&endIndex={endIndex}&queue=competitive");
+        var result = new List<JsonElement>();
+        
+        if (response is not { } data) return result;
+        if (!data.TryGetProperty("Matches", out var matches)) return result;
+        
+        return matches.EnumerateArray().ToList();
+    }
+    
+    public async Task<Dictionary<string, List<JsonElement>>> GetPlayerMatchHistoryBatch(List<string> puuids, int startIndex = 0, int endIndex = 5)
+    {
+        var result = new Dictionary<string, List<JsonElement>>();
+
+
+        foreach (var puuid in puuids)
+        {
+            result[puuid] = await GetPlayerMatchHistory(puuid, startIndex, endIndex);
+            await Task.Delay(250);
+        }
+        
+        return result;
+    }
+
     private async Task LogHttpErrorAsync(
         HttpRequestMessage request,
         HttpResponseMessage response,
@@ -260,6 +285,7 @@ public class ValorantApiService : IDisposable
         Logger.Error($"Riot API Error | {method} {url} -> {statusCode} - ({statusName}) | Clientversion={clientVersion} | Body={body}");
         
     }
+    
 
     public void Dispose()
     {
