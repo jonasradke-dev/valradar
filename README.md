@@ -5,63 +5,55 @@
 <h1 align="center">ValRadar</h1>
 
 <p align="center">
-  <strong>Real-time Valorant lobby & match tracker for your terminal.</strong><br/>
-  See ranks, agents, win rates, and lobby state for every player — directly in your shell.
+  <strong>Your live Valorant companion, right in your terminal.</strong><br/>
+  Get instant visibility into ranks, agents, win rates, and lobby updates for everyone in your game!
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9"/>
+  <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 10"/>
   <img src="https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows" alt="Windows"/>
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License"/>
 </p>
 
 ---
 
-## What it does
+## What is ValRadar?
 
-ValRadar connects to the local Riot Client API and Valorant's remote endpoints
-to display player information in real time, directly in your terminal.
+Have you ever wanted a quick overview of who you're playing with, without alt-tabbing to a third-party tracker site? ValRadar hooks into your local Riot Client to pull real-time stats and match info, displaying it all directly in a sleek terminal UI. 
 
-| Phase            | What you see                                                 |
-| ---------------- | ------------------------------------------------------------ |
-| **Lobby**        | Party members with rank, level, ready status, recent W/R     |
-| **Agent Select** | Your team's picks, ranks, levels, lock status, recent W/R    |
-| **In Game**      | Both teams with agents, ranks, levels, recent W/R            |
+Whether you're waiting in the lobby or loading into a match, it updates instantly based on what's happening in-game.
 
-Phase transitions are detected instantly via WebSocket — no polling delay.
+| When you're in... | Here's what you get |
+| ----------------- | ------------------- |
+| **The Lobby**     | See who's in your party, their ranks, levels, ready states, and recent win/loss rates. |
+| **Agent Select**  | Keep track of your team's agent picks, connection states, and stats while everyone locks in. |
+| **The Match**     | Full overview of both teams! Check out exactly who you're up against. |
 
-## Features
+Because we listen to Riot's local WebSocket, these updates happen the second your game changes state. No annoying refresh delays!
 
-- **Live phase detection** — WebSocket-based, reacts instantly to lobby → agent select → in-game transitions
-- **Rank & MMR lookup** — Fetches competitive tier from Riot's MMR endpoint, with smart caching
-- **Recent W/R indicator** — Shows last 5 competitive matches win/loss ratio per player
-- **Automatic token refresh** — Long sessions stay authenticated; no restarts needed
-- **Privacy-respecting** — Honors Incognito mode and hidden levels
-- **Discord Rich Presence** — Reflects current game state in your Discord profile
-- **Resilient HTTP layer** — Auto-recovers from auth failures and respects rate limits
+## Cool Features
 
-## Screenshot
+- **Instant game phase updates:** Moving from the lobby to a match? ValRadar knows right away and updates the screen.
+- **Rank & MMR fetching:** We pull competitive ranks through the official endpoints, with smart caching so everything stays snappy.
+- **Recent W/R tracking:** Easily spot how your teammates did in their last 5 competitive matches.
+- **Auto-magic authentication:** Keep playing for hours! We handle token refreshes under the hood, so you never have to restart the app.
+- **Privacy matters:** If a player hides their name or level in-game, ValRadar respects that.
+- **Discord presence:** Show off your current lobby or match status directly on your Discord profile!
+- **Play nice with rate limits:** The built-in HTTP layer naturally recovers from auth hiccups and ensures we don't spam Riot's servers.
 
-```
-                 ╔═══════════════════════════════╗
-                 ║        V A L R A D A R        ║
-                 ╚═══════════════════════════════╝
-                            Party Lobby
-   ┌──────────────────────┬────────────┬───────┬───────┬──────────────┐
-   │ Player               │ Rank       │ Level │ Ready │ WR           │
-   ├──────────────────────┼────────────┼───────┼───────┼──────────────┤
-   │ Player1#TAG (Owner)  │ Platinum 2 │ 318   │ Yes   │ 60% (3W/2L)  │
-   │ Player2#TAG          │ Platinum 1 │ 128   │ Yes   │ 40% (2W/3L)  │
-   └──────────────────────┴────────────┴───────┴───────┴──────────────┘
-```
+## See it in action
 
-## Requirements
+![Showcase screenshot](assets/showcase_screenshot.jpg)
 
-- **Windows 10/11** (uses the local Riot Client API)
-- **.NET 10.0 SDK** or later
-- **Valorant** must be running (lockfile required for authentication)
+## Getting Started
 
-## Installation
+### What you need
+- **Windows 10 or 11** (since we hook into the local Windows Riot Client)
+- **.NET 10.0 SDK** (or newer)
+- **Valorant** needs to be running (we use its lockfile for local authorization)
+
+### Installation
+Grab the code and build it via your terminal:
 
 ```bash
 git clone https://github.com/jonasradke-dev/ValRadar.git
@@ -69,78 +61,68 @@ cd ValRadar
 dotnet build
 ```
 
-## Usage
-
-1. Launch Valorant and wait until you're in the lobby
-2. Run ValRadar:
+### How to use it
+1. Boot up Valorant and wait until you hit the main menu.
+2. Fire up ValRadar:
    ```bash
    dotnet run
    ```
-3. Or build a self-contained executable:
+3. (Optional) If you'd rather build a simple standalone executable to share or run easily later:
    ```bash
    dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o ./out
    ./out/ValRadar.exe
    ```
 
-ValRadar automatically detects your game phase and displays the appropriate view.
+That's it! ValRadar will automatically sync with your game phase.
 
-## How it works
+## Peek under the hood
 
-ValRadar uses a layered HTTP pipeline with custom `DelegatingHandler`s:
+For the curious developers out there, ValRadar uses a layered HTTP pipeline that makes managing Riot's authorization super smooth. We use custom `DelegatingHandler`s to process the requests:
 
-```
+```text
 HttpClient
-└─ TokenRefreshHandler     ← catches 401/400, refreshes Riot tokens automatically
-   └─ RiotAuthHandler      ← injects current entitlement + auth headers
+└─ TokenRefreshHandler     ← Oops, 401/400? This refreshes Riot tokens automatically!
+   └─ RiotAuthHandler      ← Injects your current entitlement and auth headers.
       └─ HttpClientHandler
 ```
 
-Auth state is held by a single `RiotAuthService` and read live by the handler
-chain — refreshes propagate immediately to all in-flight components.
+A central `RiotAuthService` manages the authentication state. When tokens refresh, those changes are immediately available to every API request still in flight. 
 
-Phase detection runs over Riot's local WebSocket; API calls go to the remote
-PD (`pd.{shard}.a.pvp.net`) and GLZ (`glz-{region}-1.{shard}.a.pvp.net`)
-clusters. Player data (rank, names, match history) is cached aggressively with
-TTL-based invalidation to stay well below Riot's rate limits.
+We catch game updates through the local Riot WebSocket and rely on remote endpoints (`pd.{shard}.a.pvp.net` and `glz-{region}-1.{shard}.a.pvp.net`) to grab player stats. To stay friendly with rate limits, ValRadar aggressively caches data (like ranks and match history).
 
-## Project structure
+### The Code Setup
 
-```
+```text
 ValRadar/
-├── Auth/                       Authentication & HTTP pipeline
-│   ├── RiotAuthService.cs       Token state + refresh orchestration
-│   ├── RiotAuthHandler.cs       Header injection
-│   ├── TokenRefreshHandler.cs   Automatic re-auth on 401/400
+├── Auth/                       Takes care of the HTTP pipeline & logins
+│   ├── RiotAuthService.cs       
+│   ├── RiotAuthHandler.cs       
+│   ├── TokenRefreshHandler.cs   
 │   └── ...
-├── RiotClient/                 Local Riot Client integration
-│   ├── LockfileReader.cs        Parses lockfile for local API auth
-│   ├── RegionResolver.cs        Extracts region from ShooterGame.log
+├── RiotClient/                 Hooks into your local client
+│   ├── LockfileReader.cs        Finds your password/port for local requests
+│   ├── RegionResolver.cs        Figures out your region from log files
 │   └── ...
-├── Services/
-│   ├── ValorantApiService.cs    Remote PD/GLZ endpoints
-│   ├── GameDisplayService.cs    Spectre.Console rendering
-│   ├── DiscordRPCService.cs     Discord Rich Presence
-│   └── RiotWebSocketService.cs  Phase event listener
+├── Services/                   The heavy lifters
+│   ├── ValorantApiService.cs    Talks to external Riot servers
+│   ├── GameDisplayService.cs    Paints the terminal UI with Spectre.Console
+│   ├── DiscordRPCService.cs     Tells Discord what you're up to
+│   └── RiotWebSocketService.cs  Listens for live game events
 └── Program.cs
 ```
 
-## Credits
+## Huge thanks to
 
-- [Spectre.Console](https://spectreconsole.net/) — terminal UI framework
-- [techchrism's valorant-api-docs](https://github.com/techchrism/valorant-api-docs) — endpoint documentation
-- [valorant-api.com](https://valorant-api.com/) — public asset and version API
+- [Spectre.Console](https://spectreconsole.net/) for making terminal UIs actually look amazing.
+- [techchrism's valorant-api-docs](https://github.com/techchrism/valorant-api-docs) for breaking down Riot's web APIs.
+- [valorant-api.com](https://valorant-api.com/) for building such an awesome public asset API.
 
-## Disclaimer
+## A quick disclaimer
 
-ValRadar is not affiliated with, endorsed, sponsored, or specifically approved
-by Riot Games, Inc. or any of its affiliates. VALORANT and all related logos,
-characters, names, and distinctive likenesses are the exclusive property of
-Riot Games, Inc.
+ValRadar isn't officially affiliated with, endorsed by, or sponsored by Riot Games, Inc. VALORANT and all related logos and characters are property of Riot Games, Inc.
 
-This is an unofficial, community-built tool that uses the local Riot Client
-API. It does not modify the game in any way and only reads data that the
-official client also retrieves. Use at your own discretion.
+This is simply a passionate community project! It doesn't modify game files, won't get you banned, and only reads data your client is already allowed to view. Use it and enjoy!
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — check out the [LICENSE](LICENSE) file for more info.

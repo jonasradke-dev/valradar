@@ -18,7 +18,6 @@ public class DiscordRPCService : IDisposable
         _client = new DiscordRpcClient(_applicationId);
         _client.Initialize();
     }
-
     public void UpdatePresence(string details, string state, string largeImageKey = "", string largeImageText = "")
     {
         if( _client == null || _client.IsDisposed) return;
@@ -31,6 +30,15 @@ public class DiscordRPCService : IDisposable
                 LargeImageKey = largeImageKey,
                 LargeImageText = largeImageText
             },
+            Buttons =
+            [
+                new Button()
+                {
+                    Label = "Whats this?",
+                    Url = "https://github.com/jonasradke-dev/valradar",
+                    
+                }
+            ],
             Timestamps = Timestamps.Now
         });
     }
