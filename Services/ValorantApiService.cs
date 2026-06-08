@@ -155,6 +155,7 @@ public class ValorantApiService : IDisposable
         foreach (var puuid in puuids)
         {
             result[puuid] = await GetPlayerMMR(puuid);
+            await Task.Delay(200);
         }
         return result;
     }
