@@ -1,5 +1,4 @@
-using System.Net.Security;
-using ValRadar.Http;
+﻿using System.Net.Security;
 
 namespace ValRadar.Auth;
 
@@ -9,14 +8,9 @@ public static class RiotHttpClientFactory
     {
         var primaryHandler = new HttpClientHandler();
 
-        var rateLimitHandler = new RateLimitHandler(TimeSpan.FromMilliseconds(150))
-        {
-            InnerHandler = primaryHandler
-        };
-
         var authHandler = new RiotAuthHandler(authService, clientPlatform, clientVersionProvider)
         {
-            InnerHandler = rateLimitHandler
+            InnerHandler = primaryHandler
         };
         
         var refreshHandler = new TokenRefreshHandler(authService)
