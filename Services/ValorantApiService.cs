@@ -1,7 +1,6 @@
 ﻿using System.Text;
 using System.Text.Json;
 using ValRadar.Auth;
-using ValRadar.Models;
 using ValRadar.Util;
 
 namespace ValRadar.Services;
@@ -156,7 +155,6 @@ public class ValorantApiService : IDisposable
         foreach (var puuid in puuids)
         {
             result[puuid] = await GetPlayerMMR(puuid);
-            await Task.Delay(200); 
         }
         return result;
     }
@@ -250,7 +248,6 @@ public class ValorantApiService : IDisposable
         foreach (var puuid in puuids)
         {
             result[puuid] = await GetPlayerMatchHistory(puuid, startIndex, endIndex);
-            await Task.Delay(250);
         }
         
         return result;
